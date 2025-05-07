@@ -1,0 +1,11 @@
+<component name="ArtifactManager">
+  <artifact name="lexer:jar">
+    <output-path>$PROJECT_DIR$/out/artifacts/lexer_jar</output-path>
+    <root id="root">
+      <element id="archive" name="lexer.jar">
+        <element id="module-output" name="lexer" />
+        <element id="module-test-output" name="lexer" />
+      </element>
+    </root>
+  </artifact>
+</component>
