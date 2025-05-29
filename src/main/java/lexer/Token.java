@@ -31,6 +31,6 @@ public class Token {
 
     @Override
     public String toString() {
-        return String.format("%s('%s') at %d:%d", type, lexeme, line, column);
+        return String.format("%s('%s') на %d", type, lexeme, line);
     }
 }

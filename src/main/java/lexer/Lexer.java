@@ -39,9 +39,15 @@ public class Lexer {
 
     private final List<String> errors = new ArrayList<>();
 
+    private boolean stopOnError = false;
+
     public Lexer(String input) {
         this.input = input;
         this.length = input.length();
+    }
+
+    public void setStopOnError(boolean stopOnError) {
+        this.stopOnError = stopOnError;
     }
 
     public List<String> getErrors() {
@@ -80,12 +86,17 @@ public class Lexer {
 
     public List<Token> tokenize() {
         List<Token> tokens = new ArrayList<>();
-        while (true) {
-            Token token = nextToken();
-            tokens.add(token);
-            if (token.getType() == TokenType.EOF) {
-                break;
+        try {
+            while (true) {
+                Token token = nextToken();
+                tokens.add(token);
+                if (token.getType() == TokenType.EOF) {
+                    break;
+                }
             }
+        } catch (LexicalException e) {
+            System.err.printf("Лексическая ошибка: %s%n", e.getMessage());
+            // Можно вернуть токены, собранные до ошибки
         }
         return tokens;
     }
@@ -126,12 +137,17 @@ public class Lexer {
             return new Token(TokenType.SEPARATOR, String.valueOf(sep), startLine, startCol);
         }
 
-        // Если символ не распознан - ошибка
+        // Если символ не распознан — ошибка
         int errLine = line;
         int errCol = column;
         char errChar = advance();
-        String msg = String.format("Unexpected character '%c' at %d:%d", errChar, errLine, errCol);
+        String msg = String.format("Неожиданный символ '%c' в %d", errChar, errLine);
         errors.add(msg);
+
+        if (stopOnError) {
+            throw new LexicalException(msg, errLine, errCol);
+        }
+
         return new Token(TokenType.ERROR, String.valueOf(errChar), errLine, errCol);
     }
 
@@ -153,7 +169,10 @@ public class Lexer {
                 advance(); // '*'
                 while (true) {
                     if (peek() == '\0') {
-                        errors.add(String.format("Unterminated comment at %d:%d", line, column));
+                        errors.add(String.format("Незакрытый комментарий в %d", line));
+                        if (stopOnError) {
+                            throw new LexicalException("Незакрытый комментарий", line, column);
+                        }
                         break;
                     }
                     if (peek() == '*' && peekNext() == '/') {
@@ -211,9 +230,12 @@ public class Lexer {
 
         String lexeme = input.substring(startPos, pos);
 
-        // Проверка на корректность числа (простейшая)
         if (lexeme.chars().filter(ch -> ch == '.').count() > 1) {
-            errors.add(String.format("Invalid number format '%s' at %d:%d", lexeme, startLine, startCol));
+            String msg = String.format("Неверный формат числа '%s' в %d", lexeme, startLine);
+            errors.add(msg);
+            if (stopOnError) {
+                throw new LexicalException(msg, startLine, startCol);
+            }
             return new Token(TokenType.ERROR, lexeme, startLine, startCol);
         }
 
@@ -231,7 +253,7 @@ public class Lexer {
         while (true) {
             char c = peek();
             if (c == '\0' || c == '\n') {
-                break; // ошибка - не закрыта строка
+                break; // ошибка — не закрыта строка
             }
             if (c == '"') {
                 closed = true;
@@ -257,7 +279,11 @@ public class Lexer {
         }
 
         if (!closed) {
-            errors.add(String.format("Unterminated string literal at %d:%d", startLine, startCol));
+            String msg = String.format("Незакрытая строковая константа в %d", startLine);
+            errors.add(msg);
+            if (stopOnError) {
+                throw new LexicalException(msg, startLine, startCol);
+            }
             return new Token(TokenType.ERROR, sb.toString(), startLine, startCol);
         }
 
@@ -268,7 +294,6 @@ public class Lexer {
         int startLine = line;
         int startCol = column;
 
-        // Максимальная длина оператора в C++ - 3 символа (например, <<=)
         int maxLen = Math.min(3, length - pos);
 
         for (int len = maxLen; len > 0; len--) {
@@ -281,9 +306,12 @@ public class Lexer {
             }
         }
 
-        // Если не нашли оператор - вернуть ошибку
         char c = advance();
-        errors.add(String.format("Unknown operator '%c' at %d:%d", c, startLine, startCol));
+        String msg = String.format("Неизвестный оператор '%c' в %d", c, startLine);
+        errors.add(msg);
+        if (stopOnError) {
+            throw new LexicalException(msg, startLine, startCol);
+        }
         return new Token(TokenType.ERROR, String.valueOf(c), startLine, startCol);
     }
 
@@ -299,7 +327,6 @@ public class Lexer {
         return isAlpha(c) || isDigit(c);
     }
 
-    // Статический метод для удобства чтения из файла
     public static Lexer fromFile(Path path) throws IOException {
         String content = Files.readString(path);
         return new Lexer(content);
