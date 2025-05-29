@@ -24,7 +24,7 @@ public class Lexer {
     private static final Set<String> OPERATORS = Set.of(
             "+", "-", "*", "/", "%", "=", "==", "!=", "<", "<=", ">", ">=", "&&", "||",
             "++", "--", "+=", "-=", "*=", "/=", "%=", "&", "|", "^", "~", "<<", ">>",
-            "<<=", ">>=", "->", ".", "?:", "?", ":"
+            "<<=", ">>=", "->", ".", "?:", "?", ":", "::"
     );
 
     private static final Set<Character> SEPARATORS = Set.of(
@@ -321,40 +321,58 @@ public class Lexer {
         int startLine = line;
         int startCol = column;
 
-        final int maxOpLength = 3; // максимальная длина оператора
-
+        final int maxOpLength = 5; // увеличьте, если есть длинные операторы
         int maxLength = Math.min(maxOpLength, length - pos);
-        String op = null;
 
-        // Ищем максимально длинный оператор
-        for (int len = maxLength; len > 0; len--) {
-            String candidate = input.substring(pos, pos + len);
-            if (OPERATORS.contains(candidate)) {
-                op = candidate;
-                break;
+        // Попытаемся взять максимально длинную последовательность из операторских символов
+        int endPos = pos;
+        while (endPos < length && OPERATORS_START.contains(input.charAt(endPos)) && (endPos - pos) < maxOpLength) {
+            endPos++;
+        }
+
+        String candidate = input.substring(pos, endPos);
+
+        // Теперь пытаемся найти максимально длинный оператор из candidate, начиная с полной длины
+        for (int len = candidate.length(); len > 0; len--) {
+            String subOp = candidate.substring(0, len);
+            if (OPERATORS.contains(subOp)) {
+                // Проверяем, остались ли символы после subOp в candidate
+                if (len < candidate.length()) {
+                    // Остались дополнительные операторские символы — считаем ошибкой
+                    String unknownOp = candidate;
+                    String msg = String.format("Неизвестный оператор '%s' в %d:%d", unknownOp, startLine, startCol);
+                    if (stopOnError) {
+                        throw new LexicalException(msg, startLine, startCol);
+                    } else {
+                        // Продвигаем позицию на длину unknownOp, чтобы не зациклиться
+                        for (int i = 0; i < unknownOp.length(); i++) {
+                            advance();
+                        }
+                        errors.add(msg);
+                        return new Token(TokenType.ERROR, unknownOp, startLine, startCol);
+                    }
+                } else {
+                    // Оператор распознан корректно
+                    for (int i = 0; i < subOp.length(); i++) {
+                        advance();
+                    }
+                    return new Token(TokenType.OPERATOR, subOp, startLine, startCol);
+                }
             }
         }
 
-        if (op == null) {
-            // Неизвестный оператор — ошибка
-            String unknownOp = input.substring(pos, pos + maxLength);
-            String msg = String.format("Неизвестный оператор '%s' в %d:%d", unknownOp, startLine, startCol);
-
-            if (stopOnError) {
-                throw new LexicalException(msg, startLine, startCol);
-            } else {
-                char errChar = advance();
-                errors.add(msg);
-                return new Token(TokenType.ERROR, String.valueOf(errChar), startLine, startCol);
+        // Если ни один оператор не распознан — ошибка
+        String unknownOp = candidate;
+        String msg = String.format("Неизвестный оператор '%s' в %d:%d", unknownOp, startLine, startCol);
+        if (stopOnError) {
+            throw new LexicalException(msg, startLine, startCol);
+        } else {
+            for (int i = 0; i < unknownOp.length(); i++) {
+                advance();
             }
+            errors.add(msg);
+            return new Token(TokenType.ERROR, unknownOp, startLine, startCol);
         }
-
-        // Продвигаем позицию на длину оператора
-        for (int i = 0; i < op.length(); i++) {
-            advance();
-        }
-
-        return new Token(TokenType.OPERATOR, op, startLine, startCol);
     }
 
 
