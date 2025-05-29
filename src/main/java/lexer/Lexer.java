@@ -37,6 +37,8 @@ public class Lexer {
     private int line = 1;
     private int column = 1;
 
+
+
     private final List<String> errors = new ArrayList<>();
 
     private boolean stopOnError = false;
@@ -65,8 +67,7 @@ public class Lexer {
     }
 
     private char advance() {
-        char c = peek();
-        pos++;
+        char c = input.charAt(pos++);
         if (c == '\n') {
             line++;
             column = 1;
@@ -75,6 +76,7 @@ public class Lexer {
         }
         return c;
     }
+
 
     private boolean match(char expected) {
         if (peek() == expected) {
@@ -86,17 +88,12 @@ public class Lexer {
 
     public List<Token> tokenize() {
         List<Token> tokens = new ArrayList<>();
-        try {
-            while (true) {
-                Token token = nextToken();
-                tokens.add(token);
-                if (token.getType() == TokenType.EOF) {
-                    break;
-                }
+        while (true) {
+            Token token = nextToken();
+            tokens.add(token);
+            if (token.getType() == TokenType.EOF) {
+                break;
             }
-        } catch (LexicalException e) {
-            System.err.printf("Лексическая ошибка: %s%n", e.getMessage());
-            // Можно вернуть токены, собранные до ошибки
         }
         return tokens;
     }
@@ -110,14 +107,18 @@ public class Lexer {
 
         char c = peek();
 
-        // Идентификаторы и ключевые слова
-        if (isAlpha(c) || c == '_') {
-            return identifierOrKeyword();
+        if (OPERATORS_START.contains(c)) { // OPERATORS_START — множество первых символов операторов
+            return operator();
         }
 
-        // Числа
+        // Если символ — цифра, вызываем number()
         if (isDigit(c)) {
             return number();
+        }
+
+        // Если символ — буква или '_', вызываем identifierOrKeyword()
+        if (isAlpha(c) || c == '_') {
+            return identifierOrKeyword();
         }
 
         // Строковые литералы
@@ -125,10 +126,7 @@ public class Lexer {
             return stringLiteral();
         }
 
-        // Операторы и разделители
-        if (OPERATORS_START.contains(c)) {
-            return operator();
-        }
+
 
         if (SEPARATORS.contains(c)) {
             int startLine = line;
@@ -141,7 +139,7 @@ public class Lexer {
         int errLine = line;
         int errCol = column;
         char errChar = advance();
-        String msg = String.format("Неожиданный символ '%c' в %d", errChar, errLine);
+        String msg = String.format("Неожиданный символ '%c' в %d:%d", errChar, errLine, errCol);
         errors.add(msg);
 
         if (stopOnError) {
@@ -193,6 +191,21 @@ public class Lexer {
         int startLine = line;
         int startCol = column;
 
+        char firstChar = peek();
+
+        // Проверяем, что первый символ — буква или '_'
+        if (!isAlpha(firstChar) && firstChar != '_') {
+            String msg = String.format("Идентификатор не может начинаться с символа '%c' в %d:%d", firstChar, startLine, startCol);
+            if (stopOnError) {
+                throw new LexicalException(msg, startLine, startCol);
+            } else {
+                errors.add(msg);
+                advance();
+                return new Token(TokenType.ERROR, String.valueOf(firstChar), startLine, startCol);
+            }
+        }
+
+        // Читаем идентификатор
         while (isAlphaNumeric(peek()) || peek() == '_') {
             advance();
         }
@@ -202,45 +215,59 @@ public class Lexer {
         return new Token(type, lexeme, startLine, startCol);
     }
 
+
     private Token number() {
         int startPos = pos;
         int startLine = line;
         int startCol = column;
 
+        while (isDigit(peek())) {
+            advance();
+        }
+
+        if (isAlpha(peek()) || peek() == '_') {
+            String msg = String.format("Некорректный идентификатор, начинающийся с цифры в %d:%d", startLine, startCol);
+            if (stopOnError) {
+                throw new LexicalException(msg, startLine, startCol);
+            } else {
+                errors.add(msg);
+                // Продолжаем читать как ошибочный токен
+                while (isAlphaNumeric(peek()) || peek() == '_') {
+                    advance();
+                }
+                String lexeme = input.substring(startPos, pos);
+                return new Token(TokenType.ERROR, lexeme, startLine, startCol);
+            }
+        }
+
         boolean hasDot = false;
-        boolean hasExp = false;
 
         while (true) {
             char c = peek();
             if (isDigit(c)) {
                 advance();
-            } else if (c == '.' && !hasDot) {
+            } else if (c == '.') {
+                if (hasDot) {
+                    String lexeme = input.substring(startPos, pos);
+                    String msg = String.format("Неверный формат числа в %d:%d", startLine, startCol);
+                    if (stopOnError) {
+                        throw new LexicalException(msg, startLine, startCol);
+                    } else {
+                        errors.add(msg);
+                        break;
+                    }
+                }
                 hasDot = true;
                 advance();
-            } else if ((c == 'e' || c == 'E') && !hasExp) {
-                hasExp = true;
-                advance();
-                if (peek() == '+' || peek() == '-') {
-                    advance();
-                }
             } else {
                 break;
             }
         }
 
         String lexeme = input.substring(startPos, pos);
-
-        if (lexeme.chars().filter(ch -> ch == '.').count() > 1) {
-            String msg = String.format("Неверный формат числа '%s' в %d", lexeme, startLine);
-            errors.add(msg);
-            if (stopOnError) {
-                throw new LexicalException(msg, startLine, startCol);
-            }
-            return new Token(TokenType.ERROR, lexeme, startLine, startCol);
-        }
-
         return new Token(TokenType.NUMBER, lexeme, startLine, startCol);
     }
+
 
     private Token stringLiteral() {
         int startLine = line;
@@ -294,26 +321,43 @@ public class Lexer {
         int startLine = line;
         int startCol = column;
 
-        int maxLen = Math.min(3, length - pos);
+        final int maxOpLength = 3; // максимальная длина оператора
 
-        for (int len = maxLen; len > 0; len--) {
+        int maxLength = Math.min(maxOpLength, length - pos);
+        String op = null;
+
+        // Ищем максимально длинный оператор
+        for (int len = maxLength; len > 0; len--) {
             String candidate = input.substring(pos, pos + len);
             if (OPERATORS.contains(candidate)) {
-                for (int i = 0; i < len; i++) {
-                    advance();
-                }
-                return new Token(TokenType.OPERATOR, candidate, startLine, startCol);
+                op = candidate;
+                break;
             }
         }
 
-        char c = advance();
-        String msg = String.format("Неизвестный оператор '%c' в %d", c, startLine);
-        errors.add(msg);
-        if (stopOnError) {
-            throw new LexicalException(msg, startLine, startCol);
+        if (op == null) {
+            // Неизвестный оператор — ошибка
+            String unknownOp = input.substring(pos, pos + maxLength);
+            String msg = String.format("Неизвестный оператор '%s' в %d:%d", unknownOp, startLine, startCol);
+
+            if (stopOnError) {
+                throw new LexicalException(msg, startLine, startCol);
+            } else {
+                char errChar = advance();
+                errors.add(msg);
+                return new Token(TokenType.ERROR, String.valueOf(errChar), startLine, startCol);
+            }
         }
-        return new Token(TokenType.ERROR, String.valueOf(c), startLine, startCol);
+
+        // Продвигаем позицию на длину оператора
+        for (int i = 0; i < op.length(); i++) {
+            advance();
+        }
+
+        return new Token(TokenType.OPERATOR, op, startLine, startCol);
     }
+
+
 
     private boolean isAlpha(char c) {
         return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
@@ -331,4 +375,5 @@ public class Lexer {
         String content = Files.readString(path);
         return new Lexer(content);
     }
+
 }

@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 #include <locale>
-$
+===
 int main(int argc, char const *argv[])
 {  
     setlocale(LC_ALL, "ru_RU.UTF-8");

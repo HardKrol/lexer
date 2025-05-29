@@ -15,7 +15,7 @@ public class Main {
 
     public static void main(String[] args) {
         if (args.length == 0) {
-            System.err.println("Использование: java -jar lexanalyzer.jar [--stopOnError] <файл1.cpp> [файл2.cpp ...]");
+            System.err.println("Использование: java -jar lexer.jar [--stopOnError] <файл1.cpp> [файл2.cpp ...]");
             System.exit(1);
         }
 
@@ -52,9 +52,18 @@ public class Main {
         }
 
         Lexer lexer = new Lexer(combinedInput.toString());
-        lexer.setStopOnError(stopOnError);
 
-        List<Token> tokens = lexer.tokenize();
+        // Включаем режим прерывания анализа при ошибках
+        lexer.setStopOnError(true);
+
+        List<Token> tokens;
+        try {
+            tokens = lexer.tokenize();
+        } catch (LexicalException e) {
+            System.err.printf("Ошибка лексического анализа: %s%n", e.getMessage());
+            System.exit(1);
+            return;
+        };
 
         // Считаем лексемы для групп IDENTIFIER, STRING_LITERAL, NUMBER
         Map<TokenType, Integer> groupCounts = new EnumMap<>(TokenType.class);
@@ -81,6 +90,7 @@ public class Main {
         }
 
         System.out.printf("%nВсего лексем: %d%n", totalTokens);
+
         // Выводим статистику по остальным лексемам
 
         List<Map.Entry<String, Integer>> sortedEntries = new ArrayList<>(otherLexemeCounts.entrySet());
