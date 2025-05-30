@@ -8,23 +8,32 @@ import java.util.*;
 public class Lexer {
 
     private static final Set<String> KEYWORDS = Set.of(
-            "auto", "break", "case", "char", "const", "continue", "default",
-            "do", "double", "else", "enum", "extern", "float", "for",
-            "goto", "if", "int", "long", "register", "return", "short",
-            "signed", "sizeof", "static", "struct", "switch", "typedef",
-            "union", "unsigned", "void", "volatile", "while", "class",
-            "public", "private", "protected", "virtual", "template", "typename",
-            "using", "namespace", "bool", "true", "false", "nullptr"
+            "alignas", "continue", "friend", "register", "true",
+            "alignof", "decltype", "goto", "reinterpret_cast", "try",
+            "asm", "default", "if", "return", "typedef",
+            "auto", "delete", "inline", "short", "typeid",
+            "bool", "do", "int", "signed", "typename",
+            "break", "double", "long", "sizeof", "union",
+            "case", "dynamic_cast", "mutable", "static", "unsigned",
+            "catch", "else", "namespace", "static_assert", "using",
+            "char", "enum", "new", "static_cast", "virtual",
+            "char16_t", "explicit", "noexcept", "struct", "void",
+            "char32_t", "export", "nullptr", "switch", "volatile",
+            "class", "extern", "operator", "template", "wchar_t",
+            "const", "false", "private", "this", "while",
+            "constexpr", "float", "protected", "thread_local",
+            "const_cast", "for", "public", "throw"
     );
 
+
     private static final Set<Character> OPERATORS_START = Set.of(
-            '+', '-', '*', '/', '%', '=', '<', '>', '!', '&', '|', '^', '~', '?', ':', '.'
+            '+', '-', '*', '/', '%', '=', '<', '>', '!', '&', '|', '^', '~', '?', ':', '.', '\\'
     );
 
     private static final Set<String> OPERATORS = Set.of(
             "+", "-", "*", "/", "%", "=", "==", "!=", "<", "<=", ">", ">=", "&&", "||",
             "++", "--", "+=", "-=", "*=", "/=", "%=", "&", "|", "^", "~", "<<", ">>",
-            "<<=", ">>=", "->", ".", "?:", "?", ":", "::"
+            "<<=", ">>=", "->", ".", "?:", "?", ":", "!", "\\"
     );
 
     private static final Set<Character> SEPARATORS = Set.of(
@@ -36,8 +45,6 @@ public class Lexer {
     private int pos = 0;
     private int line = 1;
     private int column = 1;
-
-
 
     private final List<String> errors = new ArrayList<>();
 
@@ -67,7 +74,8 @@ public class Lexer {
     }
 
     private char advance() {
-        char c = input.charAt(pos++);
+        char c = peek();
+        pos++;
         if (c == '\n') {
             line++;
             column = 1;
@@ -76,7 +84,6 @@ public class Lexer {
         }
         return c;
     }
-
 
     private boolean match(char expected) {
         if (peek() == expected) {
@@ -88,12 +95,17 @@ public class Lexer {
 
     public List<Token> tokenize() {
         List<Token> tokens = new ArrayList<>();
-        while (true) {
-            Token token = nextToken();
-            tokens.add(token);
-            if (token.getType() == TokenType.EOF) {
-                break;
+        try {
+            while (true) {
+                Token token = nextToken();
+                tokens.add(token);
+                if (token.getType() == TokenType.EOF) {
+                    break;
+                }
             }
+        } catch (LexicalException e) {
+            System.err.printf("Лексическая ошибка: %s%n", e.getMessage());
+            // Можно вернуть токены, собранные до ошибки
         }
         return tokens;
     }
@@ -107,18 +119,14 @@ public class Lexer {
 
         char c = peek();
 
-        if (OPERATORS_START.contains(c)) { // OPERATORS_START — множество первых символов операторов
-            return operator();
-        }
-
-        // Если символ — цифра, вызываем number()
-        if (isDigit(c)) {
-            return number();
-        }
-
-        // Если символ — буква или '_', вызываем identifierOrKeyword()
+        // Идентификаторы и ключевые слова
         if (isAlpha(c) || c == '_') {
             return identifierOrKeyword();
+        }
+
+        // Числа
+        if (isDigit(c)) {
+            return number();
         }
 
         // Строковые литералы
@@ -126,7 +134,10 @@ public class Lexer {
             return stringLiteral();
         }
 
-
+        // Операторы и разделители
+        if (OPERATORS_START.contains(c)) {
+            return operator();
+        }
 
         if (SEPARATORS.contains(c)) {
             int startLine = line;
@@ -139,7 +150,7 @@ public class Lexer {
         int errLine = line;
         int errCol = column;
         char errChar = advance();
-        String msg = String.format("Неожиданный символ '%c' в %d:%d", errChar, errLine, errCol);
+        String msg = String.format("Неожиданный символ '%c' в %d", errChar, errLine);
         errors.add(msg);
 
         if (stopOnError) {
@@ -191,21 +202,6 @@ public class Lexer {
         int startLine = line;
         int startCol = column;
 
-        char firstChar = peek();
-
-        // Проверяем, что первый символ — буква или '_'
-        if (!isAlpha(firstChar) && firstChar != '_') {
-            String msg = String.format("Идентификатор не может начинаться с символа '%c' в %d:%d", firstChar, startLine, startCol);
-            if (stopOnError) {
-                throw new LexicalException(msg, startLine, startCol);
-            } else {
-                errors.add(msg);
-                advance();
-                return new Token(TokenType.ERROR, String.valueOf(firstChar), startLine, startCol);
-            }
-        }
-
-        // Читаем идентификатор
         while (isAlphaNumeric(peek()) || peek() == '_') {
             advance();
         }
@@ -215,49 +211,14 @@ public class Lexer {
         return new Token(type, lexeme, startLine, startCol);
     }
 
-
     private Token number() {
         int startPos = pos;
         int startLine = line;
         int startCol = column;
 
-        while (isDigit(peek())) {
-            advance();
-        }
-
-        if (isAlpha(peek()) || peek() == '_') {
-            String msg = String.format("Некорректный идентификатор, начинающийся с цифры в %d:%d", startLine, startCol);
-            if (stopOnError) {
-                throw new LexicalException(msg, startLine, startCol);
-            } else {
-                errors.add(msg);
-                // Продолжаем читать как ошибочный токен
-                while (isAlphaNumeric(peek()) || peek() == '_') {
-                    advance();
-                }
-                String lexeme = input.substring(startPos, pos);
-                return new Token(TokenType.ERROR, lexeme, startLine, startCol);
-            }
-        }
-
-        boolean hasDot = false;
-
         while (true) {
             char c = peek();
             if (isDigit(c)) {
-                advance();
-            } else if (c == '.') {
-                if (hasDot) {
-                    String lexeme = input.substring(startPos, pos);
-                    String msg = String.format("Неверный формат числа в %d:%d", startLine, startCol);
-                    if (stopOnError) {
-                        throw new LexicalException(msg, startLine, startCol);
-                    } else {
-                        errors.add(msg);
-                        break;
-                    }
-                }
-                hasDot = true;
                 advance();
             } else {
                 break;
@@ -265,6 +226,7 @@ public class Lexer {
         }
 
         String lexeme = input.substring(startPos, pos);
+
         return new Token(TokenType.NUMBER, lexeme, startLine, startCol);
     }
 
@@ -321,61 +283,26 @@ public class Lexer {
         int startLine = line;
         int startCol = column;
 
-        final int maxOpLength = 5; // увеличьте, если есть длинные операторы
-        int maxLength = Math.min(maxOpLength, length - pos);
+        int maxLen = Math.min(3, length - pos);
 
-        // Попытаемся взять максимально длинную последовательность из операторских символов
-        int endPos = pos;
-        while (endPos < length && OPERATORS_START.contains(input.charAt(endPos)) && (endPos - pos) < maxOpLength) {
-            endPos++;
-        }
-
-        String candidate = input.substring(pos, endPos);
-
-        // Теперь пытаемся найти максимально длинный оператор из candidate, начиная с полной длины
-        for (int len = candidate.length(); len > 0; len--) {
-            String subOp = candidate.substring(0, len);
-            if (OPERATORS.contains(subOp)) {
-                // Проверяем, остались ли символы после subOp в candidate
-                if (len < candidate.length()) {
-                    // Остались дополнительные операторские символы — считаем ошибкой
-                    String unknownOp = candidate;
-                    String msg = String.format("Неизвестный оператор '%s' в %d:%d", unknownOp, startLine, startCol);
-                    if (stopOnError) {
-                        throw new LexicalException(msg, startLine, startCol);
-                    } else {
-                        // Продвигаем позицию на длину unknownOp, чтобы не зациклиться
-                        for (int i = 0; i < unknownOp.length(); i++) {
-                            advance();
-                        }
-                        errors.add(msg);
-                        return new Token(TokenType.ERROR, unknownOp, startLine, startCol);
-                    }
-                } else {
-                    // Оператор распознан корректно
-                    for (int i = 0; i < subOp.length(); i++) {
-                        advance();
-                    }
-                    return new Token(TokenType.OPERATOR, subOp, startLine, startCol);
+        for (int len = maxLen; len > 0; len--) {
+            String candidate = input.substring(pos, pos + len);
+            if (OPERATORS.contains(candidate)) {
+                for (int i = 0; i < len; i++) {
+                    advance();
                 }
+                return new Token(TokenType.OPERATOR, candidate, startLine, startCol);
             }
         }
 
-        // Если ни один оператор не распознан — ошибка
-        String unknownOp = candidate;
-        String msg = String.format("Неизвестный оператор '%s' в %d:%d", unknownOp, startLine, startCol);
+        char c = advance();
+        String msg = String.format("Неизвестный оператор '%c' в %d", c, startLine);
+        errors.add(msg);
         if (stopOnError) {
             throw new LexicalException(msg, startLine, startCol);
-        } else {
-            for (int i = 0; i < unknownOp.length(); i++) {
-                advance();
-            }
-            errors.add(msg);
-            return new Token(TokenType.ERROR, unknownOp, startLine, startCol);
         }
+        return new Token(TokenType.ERROR, String.valueOf(c), startLine, startCol);
     }
-
-
 
     private boolean isAlpha(char c) {
         return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
@@ -393,5 +320,4 @@ public class Lexer {
         String content = Files.readString(path);
         return new Lexer(content);
     }
-
 }
